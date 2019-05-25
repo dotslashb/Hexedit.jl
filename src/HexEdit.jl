@@ -1,19 +1,16 @@
 module HexEdit
 
-using Compat
-import Compat.read
+export HexEd, dump!, edit!, find!
 
-export HexEd, dump!, edit!,
-       find!
-
-type HexEd # :)
-    _filesize::Int
+mutable struct HexEd
     _fh::IO
+    _filesize::Int
     _offset::UInt64
 
-    function HexEd(filename)
-        _filesize  = filesize(filename)
+    function HexEd(filename::AbstractString)
         _fh        = open(filename, "r+")
+        _filesize  =  filename[1:4]=="\\\\.\\" ? 0 : filesize(filename)
+        println("_filesize:", _filesize)
         _offset    = 0x00
         new(_filesize, _fh, _offset)
     end # constructor HexEd
@@ -26,30 +23,30 @@ function dump_line(s::HexEd, line::Array{UInt8})
     llen = length(line)
     plen = llen % 16
 
-    print("$(hex(s._offset, 8)) ")
+    print("$(uppercase(string(s._offset, base=16, pad=8))) | ")
     n = 0
-    for byte = line
-        # space every 4 bytes
-        if n % 4 == 0
+    for byte in line
+        # space every 8 bytes
+        if n == 8
             print("  ")
         end
-        print("$(hex(byte, 2)) ")
+        print("$(uppercase(string(byte, base=16, pad=2))) ")
         n = n + 1
     end
     # line up ascii on the last line of dumps
-    if plen != 0
-        while n < 16
-            if n % 4 == 0
-                print("  ")
-            end
-            print("   ")
-            n = n + 1
-        end
-    end
-    print("  ")
+    # if plen != 0
+    #     while n < 16
+    #         if n % 4 == 0
+    #             print("  ")
+    #         end
+    #         print(" ")
+    #         n = n + 1
+    #     end
+    # end
+    print("|")
     # print ascii
     n = 0
-    for byte = line
+    for byte in line
         if byte < 32 || byte > 126
             print(".")
         else
@@ -69,19 +66,20 @@ function dump_buffer(s::HexEd, buffer::Array{UInt8})
     blen = length(buffer)
     llen = 16
     idx  = 1
-    while idx< blen
-        if idx+ 16 > blen
-            llen = blen - idx+ 1
+
+    while idx < blen
+        if idx + 16 > blen
+            llen = blen - idx + 1
         end
-        dump_line(s, buffer[idx:idx+ llen - 1])
-        idx= idx+ llen
+        dump_line(s, buffer[idx:idx + llen - 1])
+        idx = idx + llen
     end
 end # function dump_buffer
 
 #----------
 # display data chunk of n size beginning at offset
 #----------
-function dump!(s::HexEd, start = nothing, n = nothing)
+function dump!(s::HexEd, start=nothing, n=nothing)
     if n == nothing
         n = s._filesize
     end
@@ -106,12 +104,11 @@ function dump!(s::HexEd, start = nothing, n = nothing)
 end # function dump!
 
 #----------
-# converts ASCII string or hexadecimal string to binary byte
-# array
+# converts ASCII string or hexadecimal string to binary byte array
 #----------
 function hex2bin(rawstr::AbstractString)
-    if (!ismatch(r"^0x[0-9a-fA-F]+", rawstr))
-        return convert(Array{UInt8}, rawstr)
+    if (match(r"^0x[0-9a-fA-F]+", rawstr) == nothing)  # If it is not a hexadecimal string
+        return Array{UInt8}(rawstr)
     end
     m = match(r"0x([0-9a-fA-F]+)", rawstr)
     len = length(m.captures[1])
@@ -124,7 +121,7 @@ end # function hex2bin
 #----------
 # edit binary file
 #----------
-function edit!(s::HexEd, datastr::AbstractString, start = nothing)
+function edit!(s::HexEd, datastr::AbstractString, start=nothing)
     if start != nothing
         s._offset = convert(UInt64, start)
     end
@@ -142,9 +139,11 @@ end # function edit!
 # nothing; modify s._offset to point to beginning of
 # located signature
 #----------
-function find!(s::HexEd, sigstr::AbstractString, start = nothing)
+function find!(s::HexEd, sigstr::AbstractString, start=nothing)
     if start != nothing
         s._offset = convert(UInt64, start)
+    else
+        s._offset = 0
     end
     sigbytes = hex2bin(sigstr)
     seek(s._fh, s._offset)
@@ -167,7 +166,7 @@ function find!(s::HexEd, sigstr::AbstractString, start = nothing)
         if idx + siglen > s._filesize
              break
         end
-        byte   = read(s._fh, 1)
+        byte = read(s._fh, 1)
         total = total + 1
         buffer = append!(buffer[2:end], byte)
         if buffer == sigbytes
